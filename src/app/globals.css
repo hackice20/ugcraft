@@ -1,26 +1,236 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #ffffff;
+
+  --font-vcr-stack: var(--font-vcr), ui-monospace, "Courier New", monospace;
+  --font-body: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --edge-space: clamp(16px, 3vw, 40px);
+  --pad-x: calc(var(--edge-space) + env(safe-area-inset-left, 0px));
+  --pad-x-r: calc(var(--edge-space) + env(safe-area-inset-right, 0px));
+  --pad-y-t: calc(clamp(16px, 2.6vw, 28px) + env(safe-area-inset-top, 0px));
+  --pad-y-b: calc(clamp(16px, 2.6vw, 28px) + env(safe-area-inset-bottom, 0px));
+
+  --crt-glow: 0 0 1px #ffffff, 0 0 8px #ffffff9e, 0 0 26px #ffffff4d;
+  --crt-glow-small: 0 0 1px #ffffff, 0 0 7px #ffffff80;
+  --hairline: rgba(255, 255, 255, 0.34);
+  --hairline-soft: rgba(255, 255, 255, 0.14);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-vcr: var(--font-vcr-stack);
+  --font-mono: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  background: #ffffff;
+  color: #000000;
+}
+
+/* ----------------------------------------------------------------------------
+   CRT STAGE + OVERLAYS
+---------------------------------------------------------------------------- */
+.crt-stage {
+  position: fixed;
+  inset: 0;
+  isolation: isolate;
+  background: #000;
+  overflow: hidden;
+  transform-origin: 50%;
+  backface-visibility: hidden;
+  animation: crtAnimation 1.6s cubic-bezier(0.18, 0.72, 0.16, 1) 0.05s both;
+}
+
+.crt-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.crt-lines {
+  z-index: 30;
+  mix-blend-mode: overlay;
+  opacity: 0.42;
+  background: repeating-linear-gradient(
+    rgba(255, 255, 255, 0.22) 0 1px,
+    transparent 1px 7px
+  );
+  background-size: 7px 7px;
+  animation: crtScroll 150s linear infinite;
+}
+
+.crt-vignette {
+  z-index: 31;
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+  background: radial-gradient(
+    ellipse 120% 120% at center,
+    rgba(0, 0, 0, 0) 52%,
+    rgba(0, 0, 0, 0.32) 82%,
+    rgba(0, 0, 0, 0.8) 100%
+  );
+}
+
+.crt-noise {
+  z-index: 32;
+  inset: -20px;
+  mix-blend-mode: overlay;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  animation: crtNoise 0.6s steps(2) infinite;
+}
+
+.crt-flicker {
+  z-index: 33;
+  background: rgba(255, 255, 255, 0.02);
+  animation: crtFlicker 5s steps(60) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-stage,
+  .crt-lines,
+  .crt-noise,
+  .crt-flicker {
+    animation: none;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   CRT TEXT / HUD HELPERS
+---------------------------------------------------------------------------- */
+.crt-text {
+  font-family: var(--font-vcr-stack);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  text-shadow: var(--crt-glow-small);
+}
+
+.crt-glow {
+  text-shadow: var(--crt-glow);
+}
+
+.crt-hairline {
+  border-color: var(--hairline);
+}
+
+/* ----------------------------------------------------------------------------
+   SCROLLBAR
+---------------------------------------------------------------------------- */
+.crt-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.crt-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.crt-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+.crt-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* blinking terminal cursor */
+.crt-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  background: #fff;
+  box-shadow: var(--crt-glow-small);
+  vertical-align: text-bottom;
+  animation: crtBlink 1.05s steps(1) infinite;
+}
+
+/* ----------------------------------------------------------------------------
+   KEYFRAMES
+---------------------------------------------------------------------------- */
+@keyframes crtAnimation {
+  0% {
+    filter: brightness(0.4);
+    transform: scaleY(0.002) scaleX(0.06);
+  }
+  18% {
+    filter: brightness(0.62);
+    transform: scaleY(0.014) scaleX(0.7);
+  }
+  58% {
+    filter: brightness(1);
+    transform: scaleY(1) scaleX(1);
+  }
+  100% {
+    filter: brightness(1);
+    transform: scaleY(1) scaleX(1);
+  }
+}
+
+@keyframes crtScroll {
+  to {
+    background-position-y: 100%;
+  }
+}
+
+@keyframes crtNoise {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(-6px, 4px);
+  }
+}
+
+@keyframes crtFlicker {
+  0%,
+  97%,
+  100% {
+    opacity: 0;
+  }
+  98% {
+    opacity: 0.5;
+  }
+  99% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes crtBlink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
 }
