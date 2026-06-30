@@ -2,17 +2,17 @@ import { randomUUID } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
-export type VideoStorageMode = "local" | "blob";
+export type VideoStorageMode = "local" | "r2";
 
 /**
- * local â†’ writes to public/output/ (served at /output/*.mp4)
- * blob  â†’ Vercel Blob (requires BLOB_READ_WRITE_TOKEN)
+ * local → writes to public/output/ (served at /output/*.mp4)
+ * r2    → Cloudflare R2 (S3-compatible, works locally + production)
  *
  * Defaults to "local" when unset — safe for npm run dev.
  */
 export function getVideoStorageMode(): VideoStorageMode {
   const mode = process.env.VIDEO_STORAGE_MODE?.toLowerCase();
-  if (mode === "blob") return "blob";
+  if (mode === "r2") return "r2";
   return "local";
 }
 
@@ -38,8 +38,8 @@ export async function saveVideo(
   const name = buildFilename(filename);
   const mode = getVideoStorageMode();
 
-  if (mode === "blob") {
-    return saveToBlob(buffer, name);
+  if (mode === "r2") {
+    return saveToR2(buffer, name);
   }
   return saveToLocal(buffer, name);
 }
@@ -59,27 +59,50 @@ async function saveToLocal(
   };
 }
 
-async function saveToBlob(
+async function saveToR2(
   buffer: Buffer,
   filename: string,
 ): Promise<SavedVideo> {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const bucketName = process.env.R2_BUCKET_NAME;
+
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) {
     throw new Error(
-      "BLOB_READ_WRITE_TOKEN is required when VIDEO_STORAGE_MODE=blob",
+      "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME are required when VIDEO_STORAGE_MODE=r2",
     );
   }
 
-  const { put } = await import("@vercel/blob");
-  const blob = await put(`videos/${filename}`, buffer, {
-    access: "public",
-    token,
-    contentType: "video/mp4",
+  const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+
+  const client = new S3Client({
+    region: "auto",
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId,
+      secretAccessKey,
+    },
   });
 
+  const key = `videos/${filename}`;
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: buffer,
+      ContentType: "video/mp4",
+    }),
+  );
+
+  // R2 public URL format (requires public bucket or custom domain)
+  const publicUrl = process.env.R2_PUBLIC_URL
+    ? `${process.env.R2_PUBLIC_URL}/${key}`
+    : `https://pub-${accountId}.r2.dev/${key}`;
+
   return {
-    url: blob.url,
+    url: publicUrl,
     filename,
-    mode: "blob",
+    mode: "r2",
   };
 }
